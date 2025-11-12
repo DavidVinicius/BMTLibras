@@ -4,19 +4,24 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data.dataset import Dataset
 from torchtext import data
+from torchtext.vocab import Vectors
 
 from datasets.load_features import fill_missing_features, load_features_from_npy
 
-
 def caption_iterator(cfg, batch_size, phase):
     print(f'Contructing caption_iterator for "{phase}" phase')
+    print(f'Using word embeddings from: "{cfg.word_emb_caps}"')
     spacy_en = spacy.load('en')
+    #spacy_pt = spacy.load('pt_core_news_sm')
     
-    def tokenize_en(txt):
+    def my_tokenize(txt):
         return [token.text for token in spacy_en.tokenizer(txt)]
     
+    # def my_tokenize(txt):
+    #     return [token.text for token in spacy_pt.tokenizer(txt)]
+    
     CAPTION = data.ReversibleField(
-        tokenize='spacy', init_token=cfg.start_token, eos_token=cfg.end_token, 
+        tokenize=my_tokenize, init_token=cfg.start_token, eos_token=cfg.end_token, 
         pad_token=cfg.pad_token, lower=True, batch_first=True, is_target=True
     )
     INDEX = data.Field(
@@ -37,7 +42,14 @@ def caption_iterator(cfg, batch_size, phase):
     dataset = data.TabularDataset(
         path=cfg.train_meta_path, format='tsv', skip_header=True, fields=fields,
     )
-    CAPTION.build_vocab(dataset.caption, min_freq=cfg.min_freq_caps, vectors=cfg.word_emb_caps)
+    
+    if "nilc" in cfg.word_emb_caps:
+        print("AQUI 2")
+        vectors = Vectors(name=cfg.word_emb_caps)
+    else:
+        vectors = cfg.word_emb_caps
+
+    CAPTION.build_vocab(dataset.caption, min_freq=cfg.min_freq_caps, vectors=vectors)
     train_vocab = CAPTION.vocab
     
     if phase == 'val_1':
@@ -53,8 +65,8 @@ def caption_iterator(cfg, batch_size, phase):
     return train_vocab, datasetloader
 
 
-class I3DFeaturesDataset(Dataset):
-    
+class I3DFeaturesDataset(Dataset):    
+
     def __init__(self, features_path, feature_name, meta_path, device, pad_idx, get_full_feat, cfg):
         self.cfg = cfg
         self.features_path = features_path
@@ -63,7 +75,7 @@ class I3DFeaturesDataset(Dataset):
         self.device = device
         self.dataset = pd.read_csv(meta_path, sep='\t')
         self.pad_idx = pad_idx
-        self.get_full_feat = get_full_feat
+        self.get_full_feat = get_full_feat        
         
         if self.feature_name == 'i3d_features':
             self.feature_size = cfg.d_vid
@@ -74,8 +86,8 @@ class I3DFeaturesDataset(Dataset):
         video_ids, captions, starts, ends, vid_stacks_rgb, vid_stacks_flow = [], [], [], [], [], []
 
         for idx in indices:
-            idx = idx.item()
-            video_id, caption, start, end, duration, _, _ = self.dataset.iloc[idx]
+            idx = idx.item()            
+            video_id, caption, start, end, duration, _, _ = self.dataset.iloc[idx]            
             
             stack = load_features_from_npy(
                 self.cfg, self.feature_names_list, video_id, start, end, duration, 
@@ -290,7 +302,7 @@ class ActivityNetCaptionsDataset(Dataset):
         self.get_full_feat = get_full_feat
 
         self.feature_names = f'{cfg.video_feature_name}_{cfg.audio_feature_name}'
-        
+
         if phase == 'train':
             self.meta_path = cfg.train_meta_path
             self.batch_size = cfg.train_batch_size
@@ -306,6 +318,7 @@ class ActivityNetCaptionsDataset(Dataset):
         else:
             raise NotImplementedError
 
+        print("@@", self.meta_path)
         # caption dataset *iterator*
         self.train_vocab, self.caption_loader = caption_iterator(cfg, self.batch_size, self.phase)
         

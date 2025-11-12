@@ -77,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument('--inf_B_coeff', type=int, default=2,
                         help='The batch size on inference will be inf_B_coeff times B arg')
     parser.add_argument('--epoch_num', type=int, default=100, help='number of epochs to train')
-    parser.add_argument('--one_by_one_starts_at', type=int, default=1,
+    parser.add_argument('--one_by_one_starts_at', type=int, default=0,
                         help='# of epochs to skip before starting 1-by-1 validation (saves time)')
     parser.add_argument('--early_stop_after', type=int, default=30,
                         help='number of epochs to wait for best metric to change before stopping')
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     parser.add_argument('--avail_mp4_path', type=str, default='./data/available_mp4.txt', 
                         help='list of available videos')
     parser.add_argument('--reference_paths', type=str, nargs='+',
-                        default=['./data/val_1_no_missings.json', './data/val_2_no_missings.json'],
+                        default=['./data/validation_dataset.json', './data/validation_dataset.json'],
                         help='reference paths for 1-by-1 validation')
     parser.add_argument('--tIoUs', type=float, default=[0.3, 0.5, 0.7, 0.9], nargs='+',
                         help='thresholds for tIoU to be used for 1-by-1 validation')

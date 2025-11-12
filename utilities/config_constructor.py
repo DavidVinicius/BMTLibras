@@ -133,7 +133,7 @@ class Config(object):
             self.log_dir = os.path.join(args.log_dir, args.procedure)
             self.checkpoint_dir = self.log_dir  # the same yes
             # exper_name = self.make_experiment_name()
-            exper_name = self.curr_time[2:]
+            exper_name = self.curr_time
             self.log_path = os.path.join(self.log_dir, exper_name)
             self.model_checkpoint_path = os.path.join(self.checkpoint_dir, exper_name)
         else:

@@ -12,7 +12,10 @@ def fill_missing_features(method, feature_size):
         return torch.zeros(1, feature_size).float()
 
 def crop_a_segment(feature, start, end, duration):
-    S, D = feature.shape
+    try:
+        S, D = feature.shape
+    except:
+        return None
     start_quantile = start / duration
     end_quantile = end / duration
     start_idx = int(S * start_quantile)

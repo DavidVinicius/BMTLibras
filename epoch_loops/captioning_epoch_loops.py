@@ -89,7 +89,7 @@ def save_model(cfg, epoch, model, optimizer, val_1_loss_value, val_2_loss_value,
 
 def make_masks(feature_stacks, captions, modality, pad_idx):
     masks = {}
-
+    print('Modality in make_masks:', modality)
     if modality == 'video':
         if captions is None:
             masks['V_mask'] = mask(feature_stacks['rgb'][:, :, 0], None, pad_idx)
@@ -284,8 +284,112 @@ def validation_1by1_loop(cfg, model, loader, decoder, epoch, TBoard):
             TBoard.add_scalar(f'{phase}/meteor', val_metrics['Average across tIoUs']['METEOR'] * 100, epoch)
             TBoard.add_scalar(f'{phase}/bleu4', val_metrics['Average across tIoUs']['Bleu_4'] * 100, epoch)
             TBoard.add_scalar(f'{phase}/bleu3', val_metrics['Average across tIoUs']['Bleu_3'] * 100, epoch)
+            TBoard.add_scalar(f'{phase}/bleu2', val_metrics['Average across tIoUs']['Bleu_2'] * 100, epoch)
+            TBoard.add_scalar(f'{phase}/bleu1', val_metrics['Average across tIoUs']['Bleu_1'] * 100, epoch)
             TBoard.add_scalar(f'{phase}/precision', val_metrics['Average across tIoUs']['Precision'] * 100, epoch)
             TBoard.add_scalar(f'{phase}/recall', val_metrics['Average across tIoUs']['Recall'] * 100, epoch)
             TBoard.add_scalar(f'{phase}/duration_of_1by1', (time() - start_timer) / 60, epoch)
 
         return val_metrics
+
+
+def inference_validation(cfg, model, loader, decoder, epoch):
+    start_timer = time()
+    
+    # init the dict with results and other technical info
+    predictions = {
+        'version': 'VERSION 1.0',
+        'external_data': {
+            'used': True, 
+            'details': ''
+        },
+        'results': {}
+    }
+    model.eval()
+    loader.dataset.update_iterator()
+    
+    start_idx = loader.dataset.start_idx
+    end_idx = loader.dataset.end_idx
+    pad_idx = loader.dataset.pad_idx
+    phase = loader.dataset.phase
+    print("Phase:", phase, "Loader length:", len(loader))
+    # feature_names = loader.dataset.feature_names
+    
+    if phase == 'val_1':
+        reference_paths = [cfg.reference_paths[0]]
+        tIoUs = [0.9]
+
+    progress_bar_name = f'{cfg.curr_time[2:]}: {phase} 1by1 {epoch} @ {cfg.device}'
+    
+    for i, batch in enumerate(tqdm(loader, desc=progress_bar_name)):
+        # caption_idx = batch['caption_data'].caption
+        # caption_idx, caption_idx_y = caption_idx[:, :-1], caption_idx[:, 1:]
+        ### PREDICT TOKENS ONE-BY-ONE AND TRANSFORM THEM INTO STRINGS TO FORM A SENTENCE
+        print("@@ Batch", i, "with", len(batch['video_ids']), "videos")
+        print("@@ max len", cfg.max_len)
+        ints_stack = decoder(
+            model, batch['feature_stacks'], cfg.max_len, start_idx, end_idx, pad_idx, cfg.modality
+        )
+        ints_stack = ints_stack.cpu().numpy()  # what happens here if I use only cpu?
+        # transform integers into strings
+        list_of_lists_with_strings = [[loader.dataset.train_vocab.itos[i] for i in ints] for ints in ints_stack]
+        ### FILTER PREDICTED TOKENS
+        # initialize the list to fill it using indices instead of appending them
+        list_of_lists_with_filtered_sentences = [None] * len(list_of_lists_with_strings)
+
+        for b, strings in enumerate(list_of_lists_with_strings):
+            # remove starting token
+            strings = strings[1:]
+            # and remove everything after ending token
+            # sometimes it is not in the list
+            try:
+                first_entry_of_eos = strings.index('</s>')
+                strings = strings[:first_entry_of_eos]
+            except ValueError:
+                pass
+            # remove the period at the eos, if it is at the end (safe)
+            # if trg_strings[-1] == '.':
+            #     trg_strings = trg_strings[:-1]
+            # join everything together
+            sentence = ' '.join(strings)
+            # Capitalize the sentence
+            sentence = sentence.capitalize()
+            # add the filtered sentense to the list
+            list_of_lists_with_filtered_sentences[b] = sentence
+            
+        ### ADDING RESULTS TO THE DICT WITH RESULTS
+        for video_id, start, end, sent in zip(batch['video_ids'], batch['starts'], batch['ends'],
+                                              list_of_lists_with_filtered_sentences):
+            segment = {
+                'sentence': sent,
+                'timestamp': [start.item(), end.item()]
+            }
+
+            if predictions['results'].get(video_id):
+                predictions['results'][video_id].append(segment)
+
+            else:
+                predictions['results'][video_id] = [segment]
+
+    ## RUN THE EVALUATION
+    test_file = cfg.val_1_meta_path.split('/')[-1].split('_')[0]
+    save_filename = f'inference_predictions_{test_file}.json'
+    expirement_name = cfg.log_path.split('/')[-1]
+    submission_path_folder = os.path.join('./inference', expirement_name)
+    submission_path = os.path.join('./inference', expirement_name, save_filename)
+
+    # in case TBoard is not defined make logdir
+    os.makedirs(submission_path_folder, exist_ok=True)
+
+    # if this is run with another loader and pretrained model
+    # it substitutes the previous prediction
+    #if os.path.exists(submission_path):
+        #submission_path = submission_path.replace('.json', f'_{time()}.json')
+    print("Saving predictions to:", submission_path)
+    with open(submission_path, 'w') as outf:
+        json.dump(predictions, outf)
+    # blocks the printing
+    with HiddenPrints():
+        val_metrics = calculate_metrics(reference_paths, submission_path, tIoUs, cfg.max_prop_per_vid)        
+
+    return val_metrics

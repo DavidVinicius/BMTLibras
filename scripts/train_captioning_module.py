@@ -29,12 +29,12 @@ def train_cap(cfg):
 
     train_dataset = ActivityNetCaptionsDataset(cfg, 'train', get_full_feat=False)
     val_1_dataset = ActivityNetCaptionsDataset(cfg, 'val_1', get_full_feat=False)
-    val_2_dataset = ActivityNetCaptionsDataset(cfg, 'val_2', get_full_feat=False)
+    #val_2_dataset = ActivityNetCaptionsDataset(cfg, 'val_2', get_full_feat=False)
     
     # make sure that DataLoader has batch_size = 1!
     train_loader = DataLoader(train_dataset, collate_fn=train_dataset.dont_collate)
     val_1_loader = DataLoader(val_1_dataset, collate_fn=val_1_dataset.dont_collate)
-    val_2_loader = DataLoader(val_2_dataset, collate_fn=val_2_dataset.dont_collate)
+    #val_2_loader = DataLoader(val_2_dataset, collate_fn=val_2_dataset.dont_collate)
 
     if cfg.modality == 'audio_video':
         model = BiModalTransformer(cfg, train_dataset)
@@ -88,10 +88,16 @@ def train_cap(cfg):
         val_1_loss = validation_next_word_loop(
             cfg, model, val_1_loader, greedy_decoder, criterion, epoch, TBoard, exp_name
         )
-        val_2_loss = validation_next_word_loop(
-            cfg, model, val_2_loader, greedy_decoder, criterion, epoch, TBoard, exp_name
-        )
-        val_avg_loss = (val_1_loss + val_2_loss) / 2
+
+        val_2_loss = val_1_loss
+        
+        # val_2_loss = validation_next_word_loop(
+        #     cfg, model, val_2_loader, greedy_decoder, criterion, epoch, TBoard, exp_name
+        # )
+        
+        # val_avg_loss = (val_1_loss + val_2_loss) / 2
+        
+        val_avg_loss = val_1_loss
 
         if scheduler is not None:
             scheduler.step(val_avg_loss)
@@ -102,9 +108,11 @@ def train_cap(cfg):
             val_1_metrics = validation_1by1_loop(
                 cfg, model, val_1_loader, greedy_decoder, epoch, TBoard
             )
-            val_2_metrics = validation_1by1_loop(
-                cfg, model, val_2_loader, greedy_decoder, epoch, TBoard
-            )
+            # val_2_metrics = validation_1by1_loop(
+            #     cfg, model, val_2_loader, greedy_decoder, epoch, TBoard
+            # )
+
+            val_2_metrics = val_1_metrics
             
             if cfg.to_log:
                 # averaging metrics obtained from val_1 and val_2
@@ -112,24 +120,31 @@ def train_cap(cfg):
                 metrics_avg = metrics_avg['Average across tIoUs']
                 
                 TBoard.add_scalar('metrics/meteor', metrics_avg['METEOR'] * 100, epoch)
-                TBoard.add_scalar('metrics/bleu4', metrics_avg['Bleu_4'] * 100, epoch)
+                TBoard.add_scalar('metrics/bleu1', metrics_avg['Bleu_1'] * 100, epoch)
+                TBoard.add_scalar('metrics/bleu2', metrics_avg['Bleu_2'] * 100, epoch)
                 TBoard.add_scalar('metrics/bleu3', metrics_avg['Bleu_3'] * 100, epoch)
+                TBoard.add_scalar('metrics/bleu4', metrics_avg['Bleu_4'] * 100, epoch)
                 TBoard.add_scalar('metrics/precision', metrics_avg['Precision'] * 100, epoch)
                 TBoard.add_scalar('metrics/recall', metrics_avg['Recall'] * 100, epoch)
             
                 # saving the model if it is better than the best so far
-                if best_metric < metrics_avg['METEOR']:
-                    best_metric = metrics_avg['METEOR']
-                    print(metrics_avg['METEOR'])
-                    print(metrics_avg['Bleu_3'])
-                    print(metrics_avg['Bleu_4'])                    
+                if best_metric < metrics_avg['Bleu_1']:
+                    best_metric = metrics_avg['Bleu_1']
                     
+                    print("Meteor", metrics_avg['METEOR'] * 100)
+                    print("Bleu 1", metrics_avg['Bleu_1'] * 100)
+                    print("Bleu 2", metrics_avg['Bleu_2'] * 100)
+                    print("Bleu 3", metrics_avg['Bleu_3'] * 100)
+                    print("Bleu 4", metrics_avg['Bleu_4'] * 100)                    
+
                     save_model(cfg, epoch, model, optimizer, val_1_loss, val_2_loss,
                                val_1_metrics, val_2_metrics, train_dataset.trg_voc_size)
                     # reset the early stopping criterion
                     num_epoch_best_metric_unchanged = 0
                 else:
                     num_epoch_best_metric_unchanged += 1
+        
+        print(f'Actual metric: {best_metric}')
                     
 
     print(f'{cfg.curr_time}')
